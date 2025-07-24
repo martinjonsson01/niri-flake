@@ -96,6 +96,7 @@
           withDinit ? false,
           withScreencastSupport ? true,
           withSystemd ? true,
+          withSessionManagement ? true,
           fetchzip,
           runCommand,
         }:
@@ -133,7 +134,8 @@
             nixpkgs.lib.optional withDbus "dbus"
             ++ nixpkgs.lib.optional withDinit "dinit"
             ++ nixpkgs.lib.optional withScreencastSupport "xdp-gnome-screencast"
-            ++ nixpkgs.lib.optional withSystemd "systemd";
+            ++ nixpkgs.lib.optional withSystemd "systemd"
+            ++ nixpkgs.lib.optional withSessionManagement "xx-session-management";
 
           passthru.providedSessions = [ "niri" ];
 
