@@ -15,7 +15,7 @@ You should preferably not be using these outputs directly. Instead, you should u
 
 The latest stable tagged version of niri, along with potential patches.
 
-Currently, this is release [`25.05.1`](https://github.com/YaLTeR/niri/releases/tag/25.05.1) with no additional patches.
+Currently, this is release [`25.08`](https://github.com/YaLTeR/niri/releases/tag/25.08) with no additional patches.
 
 
 
@@ -28,7 +28,7 @@ To access this package under `pkgs.niri-stable`, you should use [`overlays.niri`
 
 The latest commit to the development branch of niri.
 
-Currently, this is exactly commit [`fefc0bc`](https://github.com/YaLTeR/niri/tree/fefc0bc0a71556eb75352e2b611e50eb5d3bf9c2) which was authored on `2025-07-18 20:28:49`.
+Currently, this is exactly commit [`b7909db`](https://github.com/YaLTeR/niri/tree/b7909dbf61c7c1511b9a51ef46e1d503d5ba3d05) which was authored on `2025-09-12 06:00:21`.
 
 > [!warning]
 > `niri-unstable` is not a released version, there are no stability guarantees, and it may break your workflow from itme to time.
@@ -333,6 +333,7 @@ For actions that don't take any arguments, just use the corresponding attribute 
 - `debug-toggle-opaque-regions`
 - `debug-toggle-damage`
 - `λ spawn :: [string]`
+- `λ spawn-sh :: string`
 - `λ do-screen-transition :: { delay-ms? :: u16 }`
 - `λ screenshot :: { show-pointer :: bool }`
 - `λ screenshot-window :: { write-to-disk :: bool }`
@@ -391,8 +392,8 @@ For actions that don't take any arguments, just use the corresponding attribute 
 - `focus-workspace-up`
 - `λ focus-workspace :: u8 | string`
 - `focus-workspace-previous`
-- `move-window-to-workspace-down`
-- `move-window-to-workspace-up`
+- `λ move-window-to-workspace-down :: { focus :: bool }`
+- `λ move-window-to-workspace-up :: { focus :: bool }`
 - `λ move-column-to-workspace-down :: { focus :: bool }`
 - `λ move-column-to-workspace-up :: { focus :: bool }`
 - `move-workspace-down`
@@ -426,8 +427,11 @@ For actions that don't take any arguments, just use the corresponding attribute 
 - `λ set-window-height :: size-change`
 - `reset-window-height`
 - `switch-preset-column-width`
+- `switch-preset-column-width-back`
 - `switch-preset-window-width`
+- `switch-preset-window-width-back`
 - `switch-preset-window-height`
+- `switch-preset-window-height-back`
 - `maximize-column`
 - `λ set-column-width :: size-change`
 - `expand-column-to-available-width`
@@ -593,14 +597,6 @@ The path is then passed to [`strftime(3)`](https://man7.org/linux/man-pages/man3
 - type: `boolean`
 - default: `false`
 
-> [!important]
-> This option is not yet available in stable niri.
-> 
-> If you wish to modify this option, you should make sure you're using the latest unstable niri.
-> 
-> Otherwise, your system might fail to build.
-
-
 By default, niri has a set of important keybinds that are always shown in the hotkey overlay, even if they are not bound to any key.
 In particular, this helps new users discover important keybinds, especially if their config has no keybinds at all.
 
@@ -612,6 +608,13 @@ You can disable this behaviour by setting this option to `true`. Then, niri will
 - default: `false`
 
 Whether to skip the hotkey overlay shown when niri starts.
+
+
+## `programs.niri.settings.config-notification.disable-failed`
+- type: `boolean`
+- default: `false`
+
+Disable the notification that the config file failed to load.
 
 
 ## `programs.niri.settings.clipboard.disable-primary`
@@ -637,43 +640,51 @@ Whether to prefer server-side decorations (SSD) over client-side decorations (CS
 
 
 ## `programs.niri.settings.spawn-at-startup`
-- type: `list of (submodule)`
+- type: `list of attribute-tagged union`
 
 A list of commands to run when niri starts.
 
-Each command is represented as its raw arguments, meaning you **cannot** use shell syntax here.
+Each command can be represented as its raw arguments, or as a shell invocation.
 
-A leading tilde in the zeroth argument will be expanded to the user's home directory.
+When niri is built with the `systemd` feature (on by default), commands spawned this way (or with the `spawn` and `spawn-sh` actions) will be put in a transient systemd unit, which separates the process from niri and prevents e.g. OOM situations from killing the entire session.
+
+
+## `programs.niri.settings.spawn-at-startup.*.argv`
+- type: `list of string`
+
+Almost raw process arguments to spawn, without shell syntax.
+
+A leading tilde in the zeroth argument will be expanded to the user's home directory. No other preprocessing is applied.
 
 Usage is like so:
 
 ```nix
 {
   programs.niri.settings.spawn-at-startup = [
-    { command = ["waybar"]; }
-    { command = ["swaybg" "--image" "/path/to/wallpaper.jpg"]; }
-    { command = ["~/.config/niri/scripts/startup.sh"]; }
+    { argv = ["waybar"]; }
+    { argv = ["swaybg" "--image" "/path/to/wallpaper.jpg"]; }
+    { argv = ["~/.config/niri/scripts/startup.sh"]; }
   ];
 }
 ```
 
 
-If you need shell syntax, you can spawn something like this:
+
+## `programs.niri.settings.spawn-at-startup.*.sh`
+- type: `string`
+
+A shell command to spawn. Run wild with POSIX syntax.
 
 ```nix
 {
   programs.niri.settings.spawn-at-startup = [
-    { command = ["sh" "-c" "echo $NIRI_SOCKET > ~/.niri-socket"]; }
+    { sh = "echo $NIRI_SOCKET > ~/.niri-socket"; }
   ];
 }
 ```
 
 
-When niri is built with the `systemd` feature (on by default), commands spawned this way (or with the `spawn` action) will be put in a transient systemd unit, which separates the process from niri and prevents e.g. OOM situations from killing the entire session.
-
-
-## `programs.niri.settings.spawn-at-startup.*.command`
-- type: `list of string`
+Note that `{ sh = "foo"; }` is exactly equivalent to `{ argv = [ "sh" "-c" "foo" ]; }`.
 
 
 ## `programs.niri.settings.workspaces`
@@ -986,8 +997,19 @@ Further reading:
 
 
 
+## `programs.niri.settings.input.mouse.scroll-button-lock`
+- type: `boolean`
+- default: `false`
+
+When this is false, `scroll-button` needs to be held down for pointer motion to be converted to scrolling. When this is true, `scroll-button` can be pressed and released to "lock" the device into this state, until it is pressed and released a second time.
+
+Further reading:
+- https://wayland.freedesktop.org/libinput/doc/latest/scrolling.html#on-button-scrolling
+
+
+
 ## `programs.niri.settings.input.mouse.scroll-factor`
-- type: `null or floating point number`
+- type: `null or floating point number or signed integer or (submodule)`
 - default: `null`
 
 For all scroll events triggered by a wheel source, the scroll distance is multiplied by this factor.
@@ -1226,8 +1248,19 @@ Further reading:
 
 
 
+## `programs.niri.settings.input.touchpad.scroll-button-lock`
+- type: `boolean`
+- default: `false`
+
+When this is false, `scroll-button` needs to be held down for pointer motion to be converted to scrolling. When this is true, `scroll-button` can be pressed and released to "lock" the device into this state, until it is pressed and released a second time.
+
+Further reading:
+- https://wayland.freedesktop.org/libinput/doc/latest/scrolling.html#on-button-scrolling
+
+
+
 ## `programs.niri.settings.input.touchpad.scroll-factor`
-- type: `null or floating point number`
+- type: `null or floating point number or signed integer or (submodule)`
 - default: `null`
 
 For all scroll events triggered by a finger source, the scroll distance is multiplied by this factor.
@@ -1340,6 +1373,17 @@ Further reading:
 
 
 
+## `programs.niri.settings.input.trackball.scroll-button-lock`
+- type: `boolean`
+- default: `false`
+
+When this is false, `scroll-button` needs to be held down for pointer motion to be converted to scrolling. When this is true, `scroll-button` can be pressed and released to "lock" the device into this state, until it is pressed and released a second time.
+
+Further reading:
+- https://wayland.freedesktop.org/libinput/doc/latest/scrolling.html#on-button-scrolling
+
+
+
 ## `programs.niri.settings.input.trackball.scroll-method`
 - type: `null or one of "no-scroll", "two-finger", "edge", "on-button-down"`
 - default: `null`
@@ -1416,6 +1460,17 @@ Further reading:
 - default: `null`
 
 When `scroll-method = "on-button-down"`, this is the button that will be used to enable scrolling. This button must be on the same physical device as the pointer, according to libinput docs. The type is a button code, as defined in [`input-event-codes.h`](https://github.com/torvalds/linux/blob/e42b1a9a2557aa94fee47f078633677198386a52/include/uapi/linux/input-event-codes.h#L355-L363). Most commonly, this will be set to `BTN_LEFT`, `BTN_MIDDLE`, or `BTN_RIGHT`, or at least some mouse button, but any button from that file is a valid value for this option (though, libinput may not necessarily do anything useful with most of them)
+
+Further reading:
+- https://wayland.freedesktop.org/libinput/doc/latest/scrolling.html#on-button-scrolling
+
+
+
+## `programs.niri.settings.input.trackpoint.scroll-button-lock`
+- type: `boolean`
+- default: `false`
+
+When this is false, `scroll-button` needs to be held down for pointer motion to be converted to scrolling. When this is true, `scroll-button` can be pressed and released to "lock" the device into this state, until it is pressed and released a second time.
 
 Further reading:
 - https://wayland.freedesktop.org/libinput/doc/latest/scrolling.html#on-button-scrolling
@@ -2156,6 +2211,18 @@ The left and right structs work in a similar way, except the padded space is not
 - default: `null`
 
 
+<!-- programs.niri.settings.animations.exit-confirmation-open-close -->
+
+## `programs.niri.settings.animations.exit-confirmation-open-close.enable`
+- type: `boolean`
+- default: `true`
+
+
+## `programs.niri.settings.animations.exit-confirmation-open-close.kind`
+- type: `null or`[`<animation-kind>`](#animation-kind)
+- default: `null`
+
+
 <!-- programs.niri.settings.animations.horizontal-view-movement -->
 
 ## `programs.niri.settings.animations.horizontal-view-movement.enable`
@@ -2292,9 +2359,15 @@ See: https://github.com/YaLTeR/niri/wiki/Configuration:-Animations#custom-shader
 <!-- <animation-kind>.easing -->
 
 ## `<animation-kind>.easing.curve`
-- type: `one of "linear", "ease-out-quad", "ease-out-cubic", "ease-out-expo"`
+- type: `one of "linear", "ease-out-quad", "ease-out-cubic", "ease-out-expo", "cubic-bezier"`
 
 The curve to use for the easing function.
+
+
+## `<animation-kind>.easing.curve-args`
+- type: `list of (null or string or signed integer or floating point number or boolean)`
+
+Arguments to the easing curve. `cubic-bezier` requires 4 arguments, all others don't allow arguments.
 
 
 ## `<animation-kind>.easing.duration-ms`
@@ -3386,14 +3459,6 @@ This will only work for background layer surfaces that ignore exclusive zones (t
 
 
 ## `programs.niri.settings.xwayland-satellite`
-
-
-> [!important]
-> This option is not yet available in stable niri.
-> 
-> If you wish to modify this option, you should make sure you're using the latest unstable niri.
-> 
-> Otherwise, your system might fail to build.
 
 
 Xwayland-satellite integration. Requires unstable niri and unstable xwayland-satellite.

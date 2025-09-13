@@ -5,10 +5,10 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-25.05";
 
-    niri-stable.url = "github:YaLTeR/niri/v25.05.1";
+    niri-stable.url = "github:YaLTeR/niri/v25.08";
     niri-unstable.url = "github:YaLTeR/niri";
 
-    xwayland-satellite-stable.url = "github:Supreeeme/xwayland-satellite/v0.6";
+    xwayland-satellite-stable.url = "github:Supreeeme/xwayland-satellite/v0.7";
     xwayland-satellite-unstable.url = "github:Supreeeme/xwayland-satellite";
 
     # they do all have flakes, but we specifically want just the Rust sources and no flakes.
@@ -56,9 +56,6 @@
 
       fmt-date = raw: "${date.year raw}-${date.month raw}-${date.day raw}";
       fmt-time = raw: "${date.hour raw}:${date.minute raw}:${date.second raw}";
-
-      # note: against nixpkgs convention, i don't strip the "v"
-      # this is in part just slightly easier, but also distinguishes these package versions from nixpkgs
 
       version-string =
         src:
@@ -129,6 +126,12 @@
           ++ nixpkgs.lib.optional withSystemd systemdLibs # we only need udev, really.
           ++ nixpkgs.lib.optional (!withSystemd) eudev; # drop-in replacement for systemd-udev
 
+          checkFlags = [
+            # Some tests require surfaceless OpenGL displays. The "surfaceless" part means we don't need a Wayland or Xorg server;
+            # but they still fundamentally require GPU drivers, which are only (sometimes) present at runtime.
+            "--skip=::egl"
+          ];
+
           buildNoDefaultFeatures = true;
           buildFeatures =
             nixpkgs.lib.optional withDbus "dbus"
@@ -191,6 +194,7 @@
             + nixpkgs.lib.optionalString withDinit ''
               install -Dm0644 resources/dinit/niri{,-shutdown} -t $out/lib/dinit.d/user
             ''
+            # TODO: add nushell after nixos-25.11
             + ''
               installShellCompletion --cmd niri \
                 --bash <($out/bin/niri completions bash) \
@@ -198,7 +202,7 @@
                 --fish <($out/bin/niri completions fish)
 
               install -Dm0644 README.md resources/default-config.kdl -t $doc/share/doc/niri
-              mv wiki $doc/share/doc/niri/wiki
+              mv docs/wiki $doc/share/doc/niri/wiki
             '';
 
           postFixup = ''
@@ -250,11 +254,11 @@
           nativeBuildInputs = [
             pkg-config
             rustPlatform.bindgenHook
+            makeWrapper
           ];
 
           buildInputs = [
             xcb-util-cursor
-            makeWrapper
           ];
 
           buildNoDefaultFeatures = true;
@@ -262,6 +266,10 @@
 
           # All tests require a display server to be running.
           doCheck = false;
+
+          # https://github.com/Supreeeme/xwayland-satellite/blob/388d291e82ffbc73be18169d39470f340707edaa/src/lib.rs#L51
+          # https://github.com/rustyhorde/vergen/blob/9374f497395238b68ec4c6b43f69c4a78a111121/vergen-gitcl/src/lib.rs#L232
+          VERGEN_GIT_DESCRIBE = version-string src;
 
           postInstall = ''
             wrapProgram $out/bin/xwayland-satellite \
@@ -348,7 +356,7 @@
           docs-markdown = docs.make-docs (settings.fake-docs { inherit fmt-date fmt-time; });
           docs-html = html-docs.make-docs (settings.type-with html-docs.settings-fmt);
           settings-module = settings.module;
-          memo-binds = nixpkgs.lib.pipe (binds inputs.niri-unstable) [
+          memo-binds = nixpkgs.lib.pipe (binds "${inputs.niri-unstable}/niri-config/src/binds.rs") [
             (map (bind: "  \"${bind.name}\""))
             (builtins.concatStringsSep "\n")
             (memo'd: ''
@@ -495,7 +503,7 @@
                 partOf = [ "graphical-session.target" ];
                 serviceConfig = {
                   Type = "simple";
-                  ExecStart = "${pkgs.libsForQt5.polkit-kde-agent}/libexec/polkit-kde-authentication-agent-1";
+                  ExecStart = "${pkgs.kdePackages.polkit-kde-agent-1}/libexec/polkit-kde-authentication-agent-1";
                   Restart = "on-failure";
                   RestartSec = 1;
                   TimeoutStopSec = 10;

@@ -27,8 +27,8 @@
         enum
         ;
 
-      binds-stable = binds inputs.niri-stable;
-      binds-unstable = binds inputs.niri-unstable;
+      binds-stable = binds "${inputs.niri-stable}/niri-config/src/binds.rs";
+      binds-unstable = binds "${inputs.niri-unstable}/niri-config/src/binds.rs";
 
       record = record' null;
 
@@ -201,6 +201,16 @@
                 (libinput-link "scrolling" "On-Button scrolling")
               ]}
             '';
+        };
+        scroll-button-lock = optional types.bool false // {
+          description = ''
+            When this is false, ${fmt.code "scroll-button"} needs to be held down for pointer motion to be converted to scrolling. When this is true, ${fmt.code "scroll-button"} can be pressed and released to "lock" the device into this state, until it is pressed and released a second time.
+
+            Further reading:
+            ${fmt.list [
+              (libinput-link "scrolling" "On-Button scrolling")
+            ]}
+          '';
         };
         scroll-method =
           nullable (
@@ -1198,12 +1208,19 @@
 
               hide-not-bound = optional types.bool false // {
                 description = ''
-                  ${unstable-note}
-
                   By default, niri has a set of important keybinds that are always shown in the hotkey overlay, even if they are not bound to any key.
                   In particular, this helps new users discover important keybinds, especially if their config has no keybinds at all.
 
                   You can disable this behaviour by setting this option to ${fmt.code "true"}. Then, niri will only show keybinds that are actually bound to a key.
+                '';
+              };
+            };
+          }
+          {
+            config-notification = {
+              disable-failed = optional types.bool false // {
+                description = ''
+                  Disable the notification that the config file failed to load.
                 '';
               };
             };
@@ -1240,40 +1257,59 @@
 
           {
             spawn-at-startup =
-              list (record {
-                command = list types.str;
-              })
+              list (
+                types.attrTag {
+                  argv = lib.mkOption {
+                    type = types.listOf types.str;
+                    description = ''
+                      Almost raw process arguments to spawn, without shell syntax.
+
+                      A leading tilde in the zeroth argument will be expanded to the user's home directory. No other preprocessing is applied.
+
+                      Usage is like so:
+
+                      ${fmt.nix-code-block ''
+                        {
+                          ${options.spawn-at-startup} = [
+                            { argv = ["waybar"]; }
+                            { argv = ["swaybg" "--image" "/path/to/wallpaper.jpg"]; }
+                            { argv = ["~/.config/niri/scripts/startup.sh"]; }
+                          ];
+                        }
+                      ''}
+                    '';
+                  };
+                  sh = lib.mkOption {
+                    type = types.str;
+                    description = ''
+                      A shell command to spawn. Run wild with POSIX syntax.
+
+                      ${fmt.nix-code-block ''
+                        {
+                          ${options.spawn-at-startup} = [
+                            { sh = "echo $NIRI_SOCKET > ~/.niri-socket"; }
+                          ];
+                        }
+                      ''}
+
+                      Note that ${fmt.code ''{ sh = "foo"; }''} is exactly equivalent to ${fmt.code ''{ argv = [ "sh" "-c" "foo" ]; }''}.
+                    '';
+                  };
+
+                  # alias of argv
+                  command = lib.mkOption {
+                    type = types.listOf types.str;
+                    visible = false;
+                  };
+                }
+              )
               // {
                 description = ''
                   A list of commands to run when niri starts.
 
-                  Each command is represented as its raw arguments, meaning you ${fmt.strong "cannot"} use shell syntax here.
+                  Each command can be represented as its raw arguments, or as a shell invocation.
 
-                  A leading tilde in the zeroth argument will be expanded to the user's home directory.
-
-                  Usage is like so:
-
-                  ${fmt.nix-code-block ''
-                    {
-                      ${options.spawn-at-startup} = [
-                        { command = ["waybar"]; }
-                        { command = ["swaybg" "--image" "/path/to/wallpaper.jpg"]; }
-                        { command = ["~/.config/niri/scripts/startup.sh"]; }
-                      ];
-                    }
-                  ''}
-
-                  If you need shell syntax, you can spawn something like this:
-
-                  ${fmt.nix-code-block ''
-                    {
-                      ${options.spawn-at-startup} = [
-                        { command = ["sh" "-c" "echo $NIRI_SOCKET > ~/.niri-socket"]; }
-                      ];
-                    }
-                  ''}
-
-                  When niri is built with the ${fmt.code "systemd"} feature (on by default), commands spawned this way (or with the ${fmt.code "spawn"} action) will be put in a transient systemd unit, which separates the process from niri and prevents e.g. OOM situations from killing the entire session.
+                  When niri is built with the ${fmt.code "systemd"} feature (on by default), commands spawned this way (or with the ${fmt.code "spawn"} and ${fmt.code "spawn-sh"} actions) will be put in a transient systemd unit, which separates the process from niri and prevents e.g. OOM situations from killing the entire session.
                 '';
               };
           }
@@ -1600,25 +1636,39 @@
                       '';
                     };
 
-                  scroll-factor = nullable types.float // {
-                    description = ''
-                      For all scroll events triggered by a finger source, the scroll distance is multiplied by this factor.
+                  scroll-factor =
+                    nullable (
+                      types.either float-or-int (record {
+                        horizontal = optional float-or-int 1.0;
+                        vertical = optional float-or-int 1.0;
+                      })
+                    )
+                    // {
+                      description = ''
+                        For all scroll events triggered by a finger source, the scroll distance is multiplied by this factor.
 
-                      This is not a libinput property, but rather a niri-specific one.
-                    '';
-                  };
+                        This is not a libinput property, but rather a niri-specific one.
+                      '';
+                    };
                 };
               mouse =
                 pointer-tablet-common
                 // basic-pointer false
                 // {
-                  scroll-factor = nullable types.float // {
-                    description = ''
-                      For all scroll events triggered by a wheel source, the scroll distance is multiplied by this factor.
+                  scroll-factor =
+                    nullable (
+                      types.either float-or-int (record {
+                        horizontal = optional float-or-int 1.0;
+                        vertical = optional float-or-int 1.0;
+                      })
+                    )
+                    // {
+                      description = ''
+                        For all scroll events triggered by a wheel source, the scroll distance is multiplied by this factor.
 
-                      This is not a libinput property, but rather a niri-specific one.
-                    '';
-                  };
+                        This is not a libinput property, but rather a niri-specific one.
+                      '';
+                    };
                 };
               trackpoint = pointer-tablet-common // basic-pointer false;
               trackball = pointer-tablet-common // basic-pointer false;
@@ -2181,12 +2231,21 @@
                         "ease-out-quad"
                         "ease-out-cubic"
                         "ease-out-expo"
+                        "cubic-bezier"
                       ])
                       // {
                         description = ''
                           The curve to use for the easing function.
                         '';
                       };
+
+                    # eh? not loving this. but anything better is kinda nontrivial.
+                    # will refactor, currently just a stopgap so that it is usable.
+                    curve-args = list kdl.types.kdl-value // {
+                      description = ''
+                        Arguments to the easing curve. ${fmt.code "cubic-bezier"} requires 4 arguments, all others don't allow arguments.
+                      '';
+                    };
                   };
                 };
 
@@ -2194,6 +2253,7 @@
                   workspace-switch.has-shader = false;
                   horizontal-view-movement.has-shader = false;
                   config-notification-open-close.has-shader = false;
+                  exit-confirmation-open-close.has-shader = false;
                   window-movement.has-shader = false;
                   window-open.has-shader = true;
                   window-close.has-shader = true;
@@ -2896,8 +2956,6 @@
               }
               // {
                 description = ''
-                  ${unstable-note}
-
                   Xwayland-satellite integration. Requires unstable niri and unstable xwayland-satellite.
                 '';
               };
@@ -3269,6 +3327,7 @@
           (nullable leaf "accel-speed" cfg.accel-speed)
           (nullable leaf "accel-profile" cfg.accel-profile)
           (nullable leaf "scroll-button" cfg.scroll-button)
+          (flag' "scroll-button-lock" cfg.scroll-button-lock)
           (nullable leaf "scroll-method" cfg.scroll-method)
         ];
 
@@ -3363,7 +3422,7 @@
           toggle "off" cfg [
             (optional-node (cfg.kind ? easing) [
               (leaf "duration-ms" cfg.kind.easing.duration-ms)
-              (leaf "curve" cfg.kind.easing.curve)
+              (leaf "curve" ([ cfg.kind.easing.curve ] ++ cfg.kind.easing.curve-args))
             ])
             (nullable leaf "spring" cfg.kind.spring or null)
             (nullable leaf "custom-shader" cfg.custom-shader or null)
@@ -3603,6 +3662,10 @@
           (flag' "hide-not-bound" cfg.hotkey-overlay.hide-not-bound)
         ])
 
+        (plain' "config-notification" [
+          (flag' "disable-failed" cfg.config-notification.disable-failed)
+        ])
+
         (plain' "clipboard" [
           (flag' "disable-primary" cfg.clipboard.disable-primary)
         ])
@@ -3625,7 +3688,9 @@
         ]))
 
         (each cfg.spawn-at-startup (cfg: [
-          (leaf "spawn-at-startup" cfg.command)
+          (nullable leaf "spawn-at-startup" cfg.argv or null)
+          (nullable leaf "spawn-sh-at-startup" cfg.sh or null)
+          (nullable leaf "spawn-at-startup" cfg.command or null)
         ]))
 
         (each cfg.window-rules (cfg: [
